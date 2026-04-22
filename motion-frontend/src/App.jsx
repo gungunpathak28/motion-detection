@@ -40,7 +40,7 @@ export default function App() {
 
   // 🔥 ADD THESE STATES (after existing useState)
   // 🔥 MODE SYSTEM (NEW)
-const [mode, setMode] = useState("backend"); // backend | browser
+const [mode, setMode] = useState("browser"); // backend | browser
 const [recording, setRecording] = useState(false);
 const [lastFile, setLastFile] = useState("");
 const [soundOn, setSoundOn] = useState(true);
@@ -142,14 +142,32 @@ const handleStopRecording = async () => {
 };
 // 🌐 Browser Camera Start
 const startBrowserCamera = async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  videoRef.current.srcObject = stream;
-  setCamOn(true);
+  try {
+    console.log("STARTING CAMERA");
 
-  setLog(l => [{
-    time: new Date().toLocaleTimeString(),
-    msg: "🌐 Browser camera started"
-  }, ...l]);
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+    if (!videoRef.current) {
+      console.log("videoRef not ready");
+      return;
+    }
+
+    videoRef.current.srcObject = stream;
+
+    // 🔥 IMPORTANT (force play)
+    await videoRef.current.play();
+
+    setCamOn(true);
+
+    setLog(l => [{
+      time: new Date().toLocaleTimeString(),
+      msg: "🌐 Browser camera started"
+    }, ...l]);
+
+  } catch (err) {
+    console.error("Camera error:", err);
+  }
+};
 };
 
 useEffect(() => {
@@ -313,28 +331,36 @@ const stopBrowserCamera = () => {
               src={`${API}/video_feed`}
               alt="Live feed"
               style={{ width: "100%", maxHeight: 420, objectFit: "cover" }}
+               />
+              ) : (
+              <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ width: "100%", maxHeight: 420, objectFit: "cover" }}
               />
-            ) : (
-            <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            style={{ width: "100%", maxHeight: 420, objectFit: "cover" }}
-             />
             )
           ) : (
-          <div>Camera offline</div>
-          )}
-      
-              <div style={{
-                height: 360, display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center", gap: 12,
-                color: "#333",
-              }}>
-                <div style={{ fontSize: 48 }}>📷</div>
-                <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 13 }}>Camera offline</div>
-                <div style={{ fontSize: 12, color: "#222" }}>Press Start to begin</div>
+            <div style={{
+              height: 360,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 12,
+              color: "#333",
+            }}>
+              <div style={{ fontSize: 48 }}>📷</div>
+              <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 13 }}>
+                Camera offline
               </div>
+              <div style={{ fontSize: 12, color: "#222" }}>
+                Press Start to begin
+              </div>
+            </div>
+          )}
+          <canvas ref={canvasRef} style={{ display: "none" }} />
           
             {motionActive && (
               <div style={{
@@ -461,7 +487,6 @@ const stopBrowserCamera = () => {
       </div>
     </div>
   );
-}
 
 function btnStyle(color, disabled) {
   return {
