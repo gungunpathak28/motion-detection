@@ -1,0 +1,55 @@
+Motion Detection Web App — Setup Guide
+Project Structure
+```
+motion-web/
+├── backend/
+│   └── app.py          ← Flask backend (your motion detection)
+└── frontend/
+    └── App.jsx         ← React dashboard
+```
+---
+1. Backend Setup (Python + Flask)
+Install dependencies
+```bash
+pip install flask flask-cors opencv-python imutils
+```
+Run the server
+```bash
+python app.py
+```
+The backend starts at: http://localhost:5000
+API Endpoints
+Method	Route	Description
+GET	`/video_feed`	MJPEG live stream
+GET	`/status`	JSON: status, fps, motion count
+POST	`/start`	Start camera
+POST	`/stop`	Stop camera
+POST	`/reset`	Reset background reference frame
+---
+2. Frontend Setup (React)
+Create a new React app
+```bash
+npm create vite@latest motion-frontend -- --template react
+cd motion-frontend
+```
+Replace src/App.jsx with the provided App.jsx
+Run the frontend
+```bash
+npm install
+npm run dev
+```
+Opens at: http://localhost:5173
+---
+Tips
+Camera not working? Change `cv2.VideoCapture(0)` to `1` or `2` in `app.py`
+Reset Background — use this when lighting changes and false motion appears
+The frontend polls `/status` every 500ms for live stats
+The video stream uses MJPEG (no WebSocket needed)
+---
+Features
+✅ Live video stream in browser
+✅ Real-time motion detection with bounding boxes
+✅ FPS counter
+✅ Motion event log
+✅ Start / Stop / Reset controls
+✅ Alert indicator when motion is detected
