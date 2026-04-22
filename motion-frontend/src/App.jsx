@@ -308,12 +308,24 @@ const stopBrowserCamera = () => {
             position: "relative",
           }}>
             {camOn ? (
+              mode === "backend" ? (
               <img
-                src={`${API}/video_feed`}
-                alt="Live feed"
-                style={{ width: "100%", display: "block", maxHeight: 420, objectFit: "cover" }}
+              src={`${API}/video_feed`}
+              alt="Live feed"
+              style={{ width: "100%", maxHeight: 420, objectFit: "cover" }}
               />
             ) : (
+            <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            style={{ width: "100%", maxHeight: 420, objectFit: "cover" }}
+             />
+            )
+          ) : (
+          <div>Camera offline</div>
+          )}
+      
               <div style={{
                 height: 360, display: "flex", flexDirection: "column",
                 alignItems: "center", justifyContent: "center", gap: 12,
@@ -323,7 +335,7 @@ const stopBrowserCamera = () => {
                 <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 13 }}>Camera offline</div>
                 <div style={{ fontSize: 12, color: "#222" }}>Press Start to begin</div>
               </div>
-            )}
+          
             {motionActive && (
               <div style={{
                 position: "absolute", top: 12, right: 12,
@@ -357,15 +369,17 @@ const stopBrowserCamera = () => {
                 </button>
                 <button 
                 onClick={mode === "backend" ? handleStart : startBrowserCamera}
-                disabled={status.running}
-                style={btnStyle("#00ff88", status.running)}
+                disabled={mode === "backend" ? status.running : camOn}
+                style={btnStyle("#00ff88", mode === "backend" ? status.running : camOn)}
+
                 >
                   ▶ Start Camera
                   </button>
                  <button 
                  onClick={mode === "backend" ? handleStop : stopBrowserCamera}
-                 disabled={!status.running}
-                 style={btnStyle("#ff6060", !status.running)}
+                 disabled={mode === "backend" ? !status.running : !camOn}
+                 style={btnStyle("#ff6060", mode === "backend" ? !status.running : !camOn)}
+
                  >
                   ⏹ Stop Camera
                   </button> 
