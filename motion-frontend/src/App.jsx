@@ -51,8 +51,10 @@ export default function App() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   
-  // Single Source of Truth for Motion State (prevents unmount reset loops)
-  const motionStateRef = useRef({ frames: 0, frameCount: 0, isDetecting: false });
+  // Explicit Refs precisely as requested
+  const motionFramesRef = useRef(0);
+  const isMotionActiveRef = useRef(false);
+  const frameCountRef = useRef(0);
 
   useEffect(() => {
     alertSoundRef.current = new Audio("/alert.mp3");
@@ -70,8 +72,10 @@ export default function App() {
           if (data.status !== prev.status && data.status === "Motion Detected") {
             setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⚡ Motion event detected" }, ...l.slice(0, 19)]);
             if (soundOn && alertSoundRef.current) {
-              alertSoundRef.current.currentTime = 0;
-              alertSoundRef.current.play().catch(() => {});
+              if (alertSoundRef.current.paused) {
+                alertSoundRef.current.currentTime = 0;
+                alertSoundRef.current.play().catch(() => {});
+              }
             }
           }
           return data;
@@ -106,17 +110,26 @@ export default function App() {
     }
   };
 
-  // 4. Fully Integrated Reset
   const handleReset = async () => {
     try {
       await fetch(`${API}/reset`, { method: "POST" });
     } catch (err) {}
     
-    // Master Wipe
+    // Completely wipe all UI states
     setStatus(s => ({ ...s, status: "Normal", motion_count: 0 }));
     setLog([{ time: new Date().toLocaleTimeString(), msg: "🔄 System completely reset" }]);
-    motionStateRef.current = { frames: 0, frameCount: 0, isDetecting: false };
+    
+    // Fully reset ref trackers
     prevFrameRef.current = null;
+    motionFramesRef.current = 0;
+    isMotionActiveRef.current = false;
+    frameCountRef.current = 0;
+    
+    // Stop sound on reset
+    if (alertSoundRef.current) {
+      alertSoundRef.current.pause();
+      alertSoundRef.current.currentTime = 0;
+    }
     
     if (overlayRef.current) {
       const ctx = overlayRef.current.getContext("2d");
@@ -202,8 +215,10 @@ export default function App() {
     setCamOn(false);
     
     setStatus(s => ({ ...s, status: "Normal" }));
-    motionStateRef.current = { frames: 0, frameCount: 0, isDetecting: false };
     prevFrameRef.current = null;
+    motionFramesRef.current = 0;
+    isMotionActiveRef.current = false;
+    frameCountRef.current = 0;
     
     if (overlayRef.current) {
       const ctx = overlayRef.current.getContext("2d");
@@ -259,7 +274,7 @@ export default function App() {
           const g = Math.abs(frame.data[i + 1] - prevFrameRef.current.data[i + 1]);
           const b = Math.abs(frame.data[i + 2] - prevFrameRef.current.data[i + 2]);
           
-          if (r + g + b > 60) {
+          if (r + g + b > 45) { // Sensitivity threshold
             diff++;
             const p = i / 4;
             const x = p % canvas.width;
@@ -271,52 +286,52 @@ export default function App() {
           }
         }
 
-        let { frames, frameCount, isDetecting } = motionStateRef.current;
-
-        if (diff > 100) {
-          frames++;
+        if (diff > 50) { // Require minimum displacement block size
+          motionFramesRef.current++;
         } else {
-          if (frames > 0) frames--;
+          if (motionFramesRef.current > 0) motionFramesRef.current--;
         }
 
-        if (frames >= 5) {
-          frames = 5;
+        // Trigger motion only after 3+ frames
+        if (motionFramesRef.current >= 3) {
+          motionFramesRef.current = 3;
           
-          // 3. Trigger exactly once per physical motion event
-          if (!isDetecting) {
-            isDetecting = true;
+          if (!isMotionActiveRef.current) {
+            isMotionActiveRef.current = true;
             setStatus(s => ({ ...s, status: "Motion Detected", motion_count: s.motion_count + 1 }));
             setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🌐 Browser motion detected" }, ...l.slice(0, 19)]);
             
+            // Sound System: Play once, do not replay if playing
             if (soundOn && alertSoundRef.current) {
-              alertSoundRef.current.currentTime = 0;
-              alertSoundRef.current.play().catch(() => {});
+              if (alertSoundRef.current.paused) {
+                alertSoundRef.current.currentTime = 0;
+                alertSoundRef.current.play().catch(() => {});
+              }
             }
           }
 
-          // 6. Draw clean green bounding boxes, filtering out tiny noise squares
           const boxWidth = maxX - minX;
           const boxHeight = maxY - minY;
-          if (overlayCtx && boxWidth > 40 && boxHeight > 40) {
+          if (overlayCtx && boxWidth > 30 && boxHeight > 30) {
              overlayCtx.strokeStyle = "#00ff00";
              overlayCtx.lineWidth = 3;
              overlayCtx.strokeRect(minX, minY, boxWidth, boxHeight);
           }
 
-        } else if (frames === 0) {
-          // Graceful fallback and release lock
-          if (isDetecting) {
-            isDetecting = false;
+        } else if (motionFramesRef.current === 0) {
+          if (isMotionActiveRef.current) {
+            isMotionActiveRef.current = false;
             setStatus(s => ({ ...s, status: "Normal" }));
           }
         }
 
-        frameCount++;
-        if (frameCount % 3 === 0 || !prevFrameRef.current) {
+        frameCountRef.current++;
+        // Update frame every 10 frames (~160ms) to ensure enough delta for slow movements
+        if (frameCountRef.current % 10 === 0) {
           prevFrameRef.current = frame;
         }
-        
-        motionStateRef.current = { frames, frameCount, isDetecting };
+      } else {
+        prevFrameRef.current = frame;
       }
 
       animationFrameId = requestAnimationFrame(detect);
