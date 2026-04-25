@@ -210,6 +210,7 @@ export default function App() {
 
     let lastMotionTime = 0;
     let motionFrames = 0;
+    let frameCount = 0;
 
     const detect = () => {
       const video = videoRef.current;
@@ -218,6 +219,9 @@ export default function App() {
         animationFrameId = requestAnimationFrame(detect);
         return;
       }
+
+      // Update FPS UI for browser mode manually
+      setStatus(s => s.fps !== 30 ? { ...s, fps: 30 } : s);
 
       if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
         canvas.width = video.videoWidth;
@@ -230,30 +234,40 @@ export default function App() {
       if (prevFrameRef.current && prevFrameRef.current.width === canvas.width && prevFrameRef.current.height === canvas.height) {
         let diff = 0;
 
+        // Skip pixels to increase performance (check every 16th pixel = 64 bytes)
         for (let i = 0; i < frame.data.length; i += 64) {
           const r = Math.abs(frame.data[i] - prevFrameRef.current.data[i]);
           const g = Math.abs(frame.data[i + 1] - prevFrameRef.current.data[i + 1]);
           const b = Math.abs(frame.data[i + 2] - prevFrameRef.current.data[i + 2]);
-          if ((r + g + b) / 3 > 50) diff++;
+          // Require significant color change to ignore noise
+          if (r + g + b > 60) diff++;
         }
 
-        if (diff > 200) {
+        // If at least 100 sample points detected movement
+        if (diff > 100) {
           motionFrames++;
         } else {
-          motionFrames = 0;
+          // Smooth decay prevents flickering if motion stops for a split second
+          if (motionFrames > 0) motionFrames--;
         }
 
-        if (motionFrames > 5) {
+        // Must have 4-5 consecutive frames of motion
+        if (motionFrames >= 5) {
+          motionFrames = 5; // cap to prevent integer overflow over time
           const now = Date.now();
-          if (now - lastMotionTime > 1000) {
+          
+          if (now - lastMotionTime > 1500) {
             lastMotionTime = now;
+            // Increment motion count strictly once every 1.5 seconds
             setStatus(s => ({ ...s, status: "Motion Detected", motion_count: s.motion_count + 1 }));
             
+            // Log the event exactly once
             setLog(l => [{
               time: new Date().toLocaleTimeString(),
               msg: "🌐 Browser motion detected"
             }, ...l.slice(0, 19)]);
           } else {
+            // Sustain "Motion Detected" status without counting up
             setStatus(s => s.status === "Motion Detected" ? s : { ...s, status: "Motion Detected" });
           }
 
@@ -263,12 +277,19 @@ export default function App() {
               alertSoundRef.current.play().catch(() => {});
             }
           }
-        } else {
+        } else if (motionFrames === 0) {
+          // Cleanly fall back to "Watching"
           setStatus(s => s.status === "Normal" ? s : { ...s, status: "Normal" });
         }
       }
 
-      prevFrameRef.current = frame;
+      // Instead of updating the reference frame every 16ms (which makes the difference tiny),
+      // we update it every 3 frames (~50ms) so motion has time to actually displace pixels.
+      frameCount++;
+      if (frameCount % 3 === 0 || !prevFrameRef.current) {
+        prevFrameRef.current = frame;
+      }
+      
       animationFrameId = requestAnimationFrame(detect);
     };
 
@@ -354,7 +375,7 @@ export default function App() {
         <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
           <StatCard label="Status" value={isRunning ? (motionActive ? "Alert" : "Watching") : "Off"} accent={motionActive ? "#ff6060" : "#00ff88"} />
           <StatCard label="Events" value={status.motion_count} accent="#60aaff" />
-          <StatCard label="FPS" value={mode === "browser" ? (camOn ? "30" : "—") : (status.fps || "—")} accent="#ffcc44" />
+          <StatCard label="FPS" value={status.fps || "—"} accent="#ffcc44" />
           <StatCard label="Camera" value={isRunning ? "ON" : "OFF"} accent={isRunning ? "#00ff88" : "#555"} />
           <StatCard label="Recording" value={recording ? "ON" : "OFF"} accent={recording ? "#ff4444" : "#555"} />
         </div>
