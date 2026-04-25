@@ -360,14 +360,15 @@ export default function App() {
         boxShadow: "10px 0 30px rgba(0,0,0,0.5)"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 60 }}>
-          <div style={{ 
-            width: 48, height: 48, borderRadius: 14, 
-            background: "linear-gradient(135deg, rgba(0,255,255,0.2) 0%, transparent 100%)", 
-            border: "1px solid #00ffff", display: "flex", alignItems: "center", justifyContent: "center", 
-            boxShadow: "0 0 20px rgba(0,255,255,0.3)" 
-          }}>
-            <span style={{ fontSize: 24, textShadow: "0 0 10px #00ffff" }}>🧿</span>
-          </div>
+          <motion.img 
+            initial={{ rotate: -10, opacity: 0 }}
+            animate={{ rotate: 0, opacity: 1 }}
+            whileHover={{ scale: 1.1, rotate: 10, filter: "drop-shadow(0 0 20px rgba(0, 255, 255, 0.8))" }}
+            transition={{ duration: 0.6, type: "spring" }}
+            src="/logo.png" 
+            alt="logo" 
+            style={{ width: 48, filter: "drop-shadow(0 0 10px rgba(0, 255, 255, 0.5))", borderRadius: 12 }} 
+          />
           <div>
             <div style={{ color: "#00ffff", fontWeight: 800, letterSpacing: "0.15em", fontSize: 20, textShadow: "0 0 10px rgba(0, 255, 255, 0.5)" }}>A.I. CORE</div>
             <div style={{ color: "#64748b", fontSize: 10, letterSpacing: "0.2em", fontFamily: "'Space Mono', monospace" }}>SURVEILLANCE</div>
@@ -420,25 +421,8 @@ export default function App() {
       <div style={{ flex: 1, padding: "40px", overflowY: "auto", position: "relative", zIndex: 1, display: "flex", flexDirection: "column" }}>
         
         {/* Top Universal Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 40 }}>
           
-          {/* Logo Section */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <motion.img 
-              initial={{ rotate: -10, opacity: 0 }}
-              animate={{ rotate: 0, opacity: 1 }}
-              whileHover={{ scale: 1.1, rotate: 10, filter: "drop-shadow(0 0 25px rgba(0, 255, 255, 0.8))" }}
-              transition={{ duration: 0.6, type: "spring" }}
-              src="/logo.png" 
-              alt="logo" 
-              style={{ width: 56, filter: "drop-shadow(0 0 15px rgba(0, 255, 255, 0.5))", borderRadius: 12 }} 
-            />
-            <div>
-              <div style={{ color: "#00ffff", fontWeight: 800, letterSpacing: "0.15em", fontSize: 24, textShadow: "0 0 15px rgba(0, 255, 255, 0.6)", fontFamily: "'Inter', sans-serif" }}>A.I. CORE</div>
-              <div style={{ color: "#94a3b8", fontSize: 11, letterSpacing: "0.2em", fontFamily: "'Space Mono', monospace" }}>MOTION SYSTEM</div>
-            </div>
-          </div>
-
           {/* Status Indicator */}
           <motion.div 
             layout
