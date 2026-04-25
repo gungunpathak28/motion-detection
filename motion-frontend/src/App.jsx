@@ -209,6 +209,7 @@ export default function App() {
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
     let lastMotionTime = 0;
+    let motionFrames = 0;
 
     const detect = () => {
       const video = videoRef.current;
@@ -229,14 +230,20 @@ export default function App() {
       if (prevFrameRef.current && prevFrameRef.current.width === canvas.width && prevFrameRef.current.height === canvas.height) {
         let diff = 0;
 
-        for (let i = 0; i < frame.data.length; i += 4) {
+        for (let i = 0; i < frame.data.length; i += 64) {
           const r = Math.abs(frame.data[i] - prevFrameRef.current.data[i]);
           const g = Math.abs(frame.data[i + 1] - prevFrameRef.current.data[i + 1]);
           const b = Math.abs(frame.data[i + 2] - prevFrameRef.current.data[i + 2]);
-          if ((r + g + b) / 3 > 30) diff++;
+          if ((r + g + b) / 3 > 50) diff++;
         }
 
-        if (diff > 5000) {
+        if (diff > 200) {
+          motionFrames++;
+        } else {
+          motionFrames = 0;
+        }
+
+        if (motionFrames > 5) {
           const now = Date.now();
           if (now - lastMotionTime > 1000) {
             lastMotionTime = now;
