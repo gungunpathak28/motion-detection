@@ -49,7 +49,15 @@ def capture_frames():
             break
 
         img = imutils.resize(img, width=640)
+        
+        # 1. Improve brightness and contrast
+        img = cv2.convertScaleAbs(img, alpha=1.2, beta=30)
+        
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # 2. Improve lighting (Histogram Equalization)
+        gray = cv2.equalizeHist(gray)
+        
         gaussian = cv2.GaussianBlur(gray, (21, 21), 0)
 
         if first_frame is None:
@@ -68,7 +76,8 @@ def capture_frames():
             if cv2.contourArea(c) < area:
                 continue
             (x, y, w, h) = cv2.boundingRect(c)
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 100), 2)
+            # 5. Improve bounding boxes: Thicker green rectangles
+            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 3)
             motion_detected = True
 
         state["status"] = "Motion Detected" if motion_detected else "Normal"
@@ -101,6 +110,7 @@ def capture_frames():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
         with lock:
+            # 3. Stream original colored frame (img is modified with drawings and brightness, but remains BGR colored)
             output_frame = img.copy()
 
     camera.release()

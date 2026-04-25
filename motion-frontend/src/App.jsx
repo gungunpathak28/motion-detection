@@ -38,210 +38,257 @@ export default function App() {
   const [log, setLog] = useState([]);
   const logRef = useRef(null);
 
-  // 🔥 ADD THESE STATES (after existing useState)
-  // 🔥 MODE SYSTEM (NEW)
-const [mode, setMode] = useState("browser"); // backend | browser
-const [recording, setRecording] = useState(false);
-const [lastFile, setLastFile] = useState("");
-const [soundOn, setSoundOn] = useState(true);
+  const [mode, setMode] = useState("browser"); // backend | browser
+  const [recording, setRecording] = useState(false);
+  const [lastFile, setLastFile] = useState("");
+  const [soundOn, setSoundOn] = useState(true);
 
-// 🔥 Browser Camera Refs (IMPORTANT)
-const videoRef = useRef(null);
-const canvasRef = useRef(null);
-const prevFrameRef = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const prevFrameRef = useRef(null);
+  const alertSoundRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
 
-const alertSoundRef = useRef(null);
+  useEffect(() => {
+    alertSoundRef.current = new Audio("/alert.mp3");
+  }, []);
 
-useEffect(() => {
-  alertSoundRef.current = new Audio("/alert.mp3");
-}, []);
-useEffect(() => {
-  const interval = setInterval(async () => {
-    try {
-      const res = await fetch(`${API}/status`);
-      const data = await res.json();
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (mode === "browser") return; // No backend dependency in browser mode
+      
+      try {
+        const res = await fetch(`${API}/status`);
+        if (!res.ok) return;
+        const data = await res.json();
 
-      setStatus(prev => {
-        if (data.status !== prev.status && data.status === "Motion Detected") {
+        setStatus(prev => {
+          if (data.status !== prev.status && data.status === "Motion Detected") {
+            setLog(l => [{
+              time: new Date().toLocaleTimeString(),
+              msg: "⚡ Motion event detected"
+            }, ...l.slice(0, 19)]);
 
-          setLog(l => [{
-            time: new Date().toLocaleTimeString(),
-            msg: "⚡ Motion event detected"
-          }, ...l.slice(0, 19)]);
-
-          // ✅ FIXED SOUND
-          if (soundOn && alertSoundRef.current) {
-            alertSoundRef.current.currentTime = 0;
-            alertSoundRef.current.play().catch(() => {});
+            if (soundOn && alertSoundRef.current) {
+              alertSoundRef.current.currentTime = 0;
+              alertSoundRef.current.play().catch(() => {});
+            }
           }
-        }
-        return data;
-      });
+          return data;
+        });
+      } catch (_) {
+        // Silently fail if backend is unreachable
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [mode, soundOn]);
 
-    } catch (_) {}
-  }, 500);
-  return () => clearInterval(interval);
-}, []);
-useEffect(() => {
-  if (!soundOn && alertSoundRef.current) {
-    alertSoundRef.current.pause();
-    alertSoundRef.current.currentTime = 0;
-  }
-}, [soundOn]);
+  useEffect(() => {
+    if (!soundOn && alertSoundRef.current) {
+      alertSoundRef.current.pause();
+      alertSoundRef.current.currentTime = 0;
+    }
+  }, [soundOn]);
 
   const handleStart = async () => {
-    await fetch(`${API}/start`, { method: "POST" });
-    setCamOn(true);
-    setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "▶ Camera started" }, ...l]);
+    try {
+      await fetch(`${API}/start`, { method: "POST" });
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "▶ Camera started" }, ...l]);
+    } catch (err) {
+      console.error("Backend start error:", err);
+    }
   };
 
   const handleStop = async () => {
-    await fetch(`${API}/stop`, { method: "POST" });
-    setCamOn(false);
-    setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Camera stopped" }, ...l]);
+    try {
+      await fetch(`${API}/stop`, { method: "POST" });
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Camera stopped" }, ...l]);
+    } catch (err) {
+      console.error("Backend stop error:", err);
+    }
   };
 
   const handleReset = async () => {
-    await fetch(`${API}/reset`, { method: "POST" });
-    setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🔄 Background reference reset" }, ...l]);
+    try {
+      await fetch(`${API}/reset`, { method: "POST" });
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🔄 Background reference reset" }, ...l]);
+    } catch (err) {
+      console.error("Backend reset error:", err);
+    }
   };
+
   const handleStartRecording = async () => {
-  try {
-    console.log("Start Recording clicked");
-
-    const res = await fetch(`${API}/start_recording`, {
-      method: "POST",
-    });
-
-    const data = await res.json();
-    console.log("Backend response:", data);
-
-    if (data.file) {
+    if (mode === "browser") {
+      if (!videoRef.current || !videoRef.current.srcObject) return;
+      const stream = videoRef.current.srcObject;
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "video/webm" });
+        chunksRef.current = [];
+        const url = URL.createObjectURL(blob);
+        setLastFile(url);
+      };
+      mediaRecorderRef.current.start();
       setRecording(true);
-      setLastFile(data.file);
-    }
-
-    setLog(l => [{
-      time: new Date().toLocaleTimeString(),
-      msg: "🎥 Recording started"
-    }, ...l]);
-
-  } catch (err) {
-    console.error("Recording error:", err);
-  }
-};
-
-const handleStopRecording = async () => {
-  await fetch(`${API}/stop_recording`, { method: "POST" });
-  setRecording(false);
-
-  setLog(l => [{
-    time: new Date().toLocaleTimeString(),
-    msg: "⏹ Recording stopped"
-  }, ...l]);
-};
-// 🌐 Browser Camera Start
-const startBrowserCamera = async () => {
-  try {
-    console.log("STARTING CAMERA");
-
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-
-    if (!videoRef.current) {
-      console.log("videoRef not ready");
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🎥 Browser recording started" }, ...l]);
       return;
     }
 
-    videoRef.current.srcObject = stream;
+    try {
+      const res = await fetch(`${API}/start_recording`, { method: "POST" });
+      const data = await res.json();
+      if (data.file) {
+        setRecording(true);
+        setLastFile(data.file);
+      }
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🎥 Recording started" }, ...l]);
+    } catch (err) {
+      console.error("Recording error:", err);
+    }
+  };
 
-    // 🔥 IMPORTANT (force play)
-    await videoRef.current.play();
-
-    setCamOn(true);
-
-    setLog(l => [{
-      time: new Date().toLocaleTimeString(),
-      msg: "🌐 Browser camera started"
-    }, ...l]);
-
-  } catch (err) {
-    console.error("Camera error:", err);
-  }
-};
-};
-
-useEffect(() => {
-  if (!camOn || mode !== "browser") return;
-
-  const canvas = canvasRef.current;
-  const ctx = canvas.getContext("2d");
-
-  const detect = () => {
-    const video = videoRef.current;
-
-    if (!video || video.readyState !== 4) {
-      requestAnimationFrame(detect);
+  const handleStopRecording = async () => {
+    if (mode === "browser") {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+      setRecording(false);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Browser recording stopped" }, ...l]);
       return;
     }
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    try {
+      await fetch(`${API}/stop_recording`, { method: "POST" });
+      setRecording(false);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Recording stopped" }, ...l]);
+    } catch (err) {
+      console.error("Recording stop error:", err);
+    }
+  };
 
-    ctx.drawImage(video, 0, 0);
+  const startBrowserCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (!videoRef.current) return;
+      
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      
+      setCamOn(true);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🌐 Browser camera started" }, ...l]);
+    } catch (err) {
+      console.error("Camera error:", err);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⚠️ Camera access denied" }, ...l]);
+    }
+  };
 
-    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const stopBrowserCamera = () => {
+    if (recording) handleStopRecording();
+    const tracks = videoRef.current?.srcObject?.getTracks();
+    tracks?.forEach(t => t.stop());
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCamOn(false);
+    setStatus(s => ({ ...s, status: "Normal" }));
+    prevFrameRef.current = null;
+    setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🌐 Browser camera stopped" }, ...l]);
+  };
 
-    if (prevFrameRef.current) {
-      let diff = 0;
+  useEffect(() => {
+    let animationFrameId;
 
-      for (let i = 0; i < frame.data.length; i += 4) {
-        const d = Math.abs(frame.data[i] - prevFrameRef.current.data[i]);
-        if (d > 30) diff++;
+    if (!camOn || mode !== "browser") return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    let lastMotionTime = 0;
+
+    const detect = () => {
+      const video = videoRef.current;
+
+      if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) {
+        animationFrameId = requestAnimationFrame(detect);
+        return;
       }
 
-      // 🔥 MOTION DETECT
-      if (diff > 5000) {
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
 
-        setStatus(s => ({ ...s, status: "Motion Detected" }));
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-        setLog(l => [{
-          time: new Date().toLocaleTimeString(),
-          msg: "🌐 Browser motion detected"
-        }, ...l.slice(0, 19)]);
+      if (prevFrameRef.current && prevFrameRef.current.width === canvas.width && prevFrameRef.current.height === canvas.height) {
+        let diff = 0;
 
-        // 🔊 SOUND AUTO PLAY
-        if (soundOn && alertSoundRef.current) {
-          if (!alertSoundRef.current.paused) return;
-          alertSoundRef.current.currentTime = 0;
-          alertSoundRef.current.play().catch(() => {});
+        for (let i = 0; i < frame.data.length; i += 4) {
+          const r = Math.abs(frame.data[i] - prevFrameRef.current.data[i]);
+          const g = Math.abs(frame.data[i + 1] - prevFrameRef.current.data[i + 1]);
+          const b = Math.abs(frame.data[i + 2] - prevFrameRef.current.data[i + 2]);
+          if ((r + g + b) / 3 > 30) diff++;
         }
 
-      } else {
-        setStatus(s => ({ ...s, status: "Normal" }));
+        if (diff > 5000) {
+          const now = Date.now();
+          if (now - lastMotionTime > 1000) {
+            lastMotionTime = now;
+            setStatus(s => ({ ...s, status: "Motion Detected", motion_count: s.motion_count + 1 }));
+            
+            setLog(l => [{
+              time: new Date().toLocaleTimeString(),
+              msg: "🌐 Browser motion detected"
+            }, ...l.slice(0, 19)]);
+          } else {
+            setStatus(s => s.status === "Motion Detected" ? s : { ...s, status: "Motion Detected" });
+          }
+
+          if (soundOn && alertSoundRef.current) {
+            if (alertSoundRef.current.paused) {
+              alertSoundRef.current.currentTime = 0;
+              alertSoundRef.current.play().catch(() => {});
+            }
+          }
+        } else {
+          setStatus(s => s.status === "Normal" ? s : { ...s, status: "Normal" });
+        }
       }
-    }
 
-    prevFrameRef.current = frame;
+      prevFrameRef.current = frame;
+      animationFrameId = requestAnimationFrame(detect);
+    };
 
-    requestAnimationFrame(detect);
-  };
+    detect();
 
-  detect();
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [camOn, mode, soundOn]);
 
-}, [camOn, mode]);
-
-// 🌐 Stop
-const stopBrowserCamera = () => {
-  const tracks = videoRef.current?.srcObject?.getTracks();
-  tracks?.forEach(t => t.stop());
-  setCamOn(false);
-
-  setLog(l => [{
-    time: new Date().toLocaleTimeString(),
-    msg: "🌐 Browser camera stopped"
-  }, ...l]);
-};
+  const isRunning = mode === "backend" ? status.running : camOn;
   const motionActive = status.status === "Motion Detected";
+
+  function btnStyle(color, disabled) {
+    return {
+      background: disabled ? "rgba(255,255,255,0.03)" : `${color}15`,
+      border: `1px solid ${disabled ? "#ffffff11" : color + "44"}`,
+      color: disabled ? "#333" : color,
+      borderRadius: 10,
+      padding: "10px 16px",
+      fontSize: 13,
+      fontFamily: "'Space Mono', monospace",
+      cursor: disabled ? "not-allowed" : "pointer",
+      transition: "all 0.2s ease",
+      textAlign: "left",
+    };
+  }
 
   return (
     <div style={{
@@ -252,23 +299,16 @@ const stopBrowserCamera = () => {
       padding: "32px 24px",
       boxSizing: "border-box",
     }}>
-
-      {/* 🔥 Global Logo Hover Animation */}
       <style>
         {`
-          .logo:hover {
-            transform: scale(1.08);
-          }
+          .logo:hover { transform: scale(1.08); }
+          @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
         `}
       </style>
-
       <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 
-      {/* Header */}
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 32 }}>
-
-          {/* 🔥 LEFT SIDE (Logo + Title) */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <img 
               src="/logo.png" 
@@ -290,7 +330,6 @@ const stopBrowserCamera = () => {
             </div>
           </div>
 
-          {/* STATUS */}
           <div style={{
             display: "flex", alignItems: "center", gap: 8,
             background: motionActive ? "rgba(255,60,60,0.1)" : "rgba(0,255,136,0.07)",
@@ -298,26 +337,22 @@ const stopBrowserCamera = () => {
             borderRadius: 99, padding: "8px 16px",
             transition: "all 0.4s ease",
           }}>
-            <PulsingDot active={status.running} />
+            <PulsingDot active={isRunning} />
             <span style={{ fontSize: 13, fontFamily: "'Space Mono', monospace", color: motionActive ? "#ff6060" : "#00ff88" }}>
-              {motionActive ? "MOTION" : status.running ? "CLEAR" : "OFFLINE"}
+              {motionActive ? "MOTION" : isRunning ? "CLEAR" : "OFFLINE"}
             </span>
           </div>
         </div>
 
-        {/* Stats Row */}
         <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-          <StatCard label="Status" value={status.running ? (motionActive ? "Alert" : "Watching") : "Off"} accent={motionActive ? "#ff6060" : "#00ff88"} />
+          <StatCard label="Status" value={isRunning ? (motionActive ? "Alert" : "Watching") : "Off"} accent={motionActive ? "#ff6060" : "#00ff88"} />
           <StatCard label="Events" value={status.motion_count} accent="#60aaff" />
-          <StatCard label="FPS" value={status.fps || "—"} accent="#ffcc44" />
-          <StatCard label="Camera" value={status.running ? "ON" : "OFF"} accent={status.running ? "#00ff88" : "#555"} />
+          <StatCard label="FPS" value={mode === "browser" ? (camOn ? "30" : "—") : (status.fps || "—")} accent="#ffcc44" />
+          <StatCard label="Camera" value={isRunning ? "ON" : "OFF"} accent={isRunning ? "#00ff88" : "#555"} />
           <StatCard label="Recording" value={recording ? "ON" : "OFF"} accent={recording ? "#ff4444" : "#555"} />
         </div>
 
-        {/* Main layout */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20 }}>
-
-          {/* Video Feed */}
           <div style={{
             background: "rgba(255,255,255,0.02)",
             border: `1px solid ${motionActive ? "#ff3c3c44" : "#ffffff11"}`,
@@ -325,44 +360,47 @@ const stopBrowserCamera = () => {
             transition: "border-color 0.4s ease",
             position: "relative",
           }}>
-            {camOn ? (
-              mode === "backend" ? (
+            {mode === "backend" && isRunning && (
               <img
-              src={`${API}/video_feed`}
-              alt="Live feed"
-              style={{ width: "100%", maxHeight: 420, objectFit: "cover" }}
-               />
-              ) : (
-              <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{ width: "100%", maxHeight: 420, objectFit: "cover" }}
+                src={`${API}/video_feed`}
+                alt="Live feed"
+                style={{ width: "100%", maxHeight: 420, objectFit: "cover", display: "block" }}
               />
-            )
-          ) : (
-            <div style={{
-              height: 360,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 12,
-              color: "#333",
-            }}>
-              <div style={{ fontSize: 48 }}>📷</div>
-              <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 13 }}>
-                Camera offline
+            )}
+            
+            {mode === "browser" && (
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ width: "100%", maxHeight: 420, objectFit: "cover", display: camOn ? "block" : "none" }}
+              />
+            )}
+
+            {!isRunning && (
+              <div style={{
+                height: 360,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 12,
+                color: "#333",
+              }}>
+                <div style={{ fontSize: 48 }}>📷</div>
+                <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 13 }}>
+                  Camera offline
+                </div>
+                <div style={{ fontSize: 12, color: "#222" }}>
+                  Press Start to begin
+                </div>
               </div>
-              <div style={{ fontSize: 12, color: "#222" }}>
-                Press Start to begin
-              </div>
-            </div>
-          )}
-          <canvas ref={canvasRef} style={{ display: "none" }} />
-          
-            {motionActive && (
+            )}
+
+            <canvas ref={canvasRef} style={{ display: "none" }} />
+            
+            {recording && (
               <div style={{
                 position: "absolute", top: 12, right: 12,
                 background: "#ff3c3c", borderRadius: 6,
@@ -371,15 +409,23 @@ const stopBrowserCamera = () => {
                 animation: "blink 0.8s step-end infinite",
               }}>
                 ● REC
-                <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+              </div>
+            )}
+            
+            {!recording && motionActive && (
+              <div style={{
+                position: "absolute", top: 12, right: 12,
+                background: "#ff9900", borderRadius: 6,
+                padding: "4px 10px", fontSize: 11,
+                fontFamily: "'Space Mono', monospace",
+                animation: "blink 0.8s step-end infinite",
+              }}>
+                MOTION
               </div>
             )}
           </div>
 
-          {/* Right panel */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-            {/* Controls */}
             <div style={{
               background: "rgba(255,255,255,0.02)",
               border: "1px solid #ffffff11",
@@ -388,75 +434,77 @@ const stopBrowserCamera = () => {
               <div style={{ fontSize: 11, color: "#555", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "'Space Mono', monospace", marginBottom: 14 }}>Controls</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <button
-                 onClick={() => setMode(mode === "backend" ? "browser" : "backend")}
+                 onClick={() => {
+                   if (recording) handleStopRecording();
+                   if (mode === "browser" && camOn) stopBrowserCamera();
+                   if (mode === "backend" && isRunning) handleStop();
+                   setMode(mode === "backend" ? "browser" : "backend");
+                 }}
                  style={btnStyle("#ffaa00", false)}
                 >
                   🔁 Mode: {mode.toUpperCase()}
                 </button>
                 <button 
-                onClick={mode === "backend" ? handleStart : startBrowserCamera}
-                disabled={mode === "backend" ? status.running : camOn}
-                style={btnStyle("#00ff88", mode === "backend" ? status.running : camOn)}
-
+                  onClick={mode === "backend" ? handleStart : startBrowserCamera}
+                  disabled={isRunning}
+                  style={btnStyle("#00ff88", isRunning)}
                 >
                   ▶ Start Camera
-                  </button>
-                 <button 
-                 onClick={mode === "backend" ? handleStop : stopBrowserCamera}
-                 disabled={mode === "backend" ? !status.running : !camOn}
-                 style={btnStyle("#ff6060", mode === "backend" ? !status.running : !camOn)}
-
-                 >
+                </button>
+                <button 
+                  onClick={mode === "backend" ? handleStop : stopBrowserCamera}
+                  disabled={!isRunning}
+                  style={btnStyle("#ff6060", !isRunning)}
+                >
                   ⏹ Stop Camera
-                  </button> 
-                <button onClick={handleReset} disabled={!status.running} style={btnStyle("#60aaff", !status.running)}>
+                </button> 
+                <button 
+                  onClick={handleReset} 
+                  disabled={!isRunning || mode === "browser"} 
+                  style={btnStyle("#60aaff", !isRunning || mode === "browser")}
+                >
                   🔄 Reset Background
                 </button>
-                  <button 
-                  onClick={() => {
-                    console.log("CLICKED");
-                    handleStartRecording();
-                  }}
-                  disabled={recording}
-                  style={btnStyle("#ffcc00", recording)}
-                  >
-                    🎥 Start Recording
-                    </button>
-                  <button 
-
+                <button 
+                  onClick={handleStartRecording}
+                  disabled={recording || !isRunning}
+                  style={btnStyle("#ffcc00", recording || !isRunning)}
+                >
+                  🎥 Start Recording
+                </button>
+                <button 
                   onClick={handleStopRecording} 
                   disabled={!recording}
                   style={btnStyle("#ff8800", !recording)}
+                >
+                  ⏹ Stop Recording
+                </button>
+                <button 
+                  onClick={() => setSoundOn(!soundOn)}
+                  style={btnStyle("#00ffaa", false)}
+                >
+                  🔊 Sound {soundOn ? "ON" : "OFF"}
+                </button>
+                {lastFile && (
+                  <a 
+                    href={mode === "browser" ? lastFile : `${API}/download/${lastFile}`} 
+                    download={mode === "browser" ? "browser_recording.webm" : ""}
+                    style={{
+                      display: "block",
+                      padding: "10px",
+                      border: "1px solid #00ff88",
+                      borderRadius: 10,
+                      color: "#00ff88",
+                      textDecoration: "none",
+                      fontSize: 13
+                    }}
                   >
-                    ⏹ Stop Recording
-                    </button>
-                    <button 
-                    onClick={() => setSoundOn(!soundOn)}
-                    style={btnStyle("#00ffaa", false)}
-                    >
-                      🔊 Sound {soundOn ? "ON" : "OFF"}
-                      </button>
-                      {lastFile && (
-                        <a 
-                         href={`${API}/download/${lastFile}`} 
-                         download
-                         style={{
-                          display: "block",
-                          padding: "10px",
-                          border: "1px solid #00ff88",
-                          borderRadius: 10,
-                          color: "#00ff88",
-                          textDecoration: "none",
-                          fontSize: 13
-                        }}
-                        >
-                          📥 Download Clip
-                          </a>
-                        )}
+                    📥 Download Clip
+                  </a>
+                )}
               </div>
             </div>
 
-            {/* Event Log */}
             <div style={{
               background: "rgba(255,255,255,0.02)",
               border: "1px solid #ffffff11",
@@ -472,7 +520,7 @@ const stopBrowserCamera = () => {
                   <div key={i} style={{ fontSize: 12, fontFamily: "'Space Mono', monospace", borderBottom: "1px solid #ffffff08", paddingBottom: 6 }}>
                     <span style={{ color: "#555", fontSize: 10 }}>{e.time}</span>
                     <br />
-                    <span style={{ color: e.msg.includes("Motion") ? "#ff8080" : "#aaa" }}>{e.msg}</span>
+                    <span style={{ color: e.msg.includes("Motion") || e.msg.includes("⚡") ? "#ff8080" : "#aaa" }}>{e.msg}</span>
                   </div>
                 ))}
               </div>
@@ -480,25 +528,10 @@ const stopBrowserCamera = () => {
           </div>
         </div>
 
-        {/* Footer */}
         <div style={{ marginTop: 24, fontSize: 11, color: "#333", fontFamily: "'Space Mono', monospace", textAlign: "center" }}>
            Motion Detection System &nbsp;|&nbsp; OpenCV + Flask + React
         </div>
       </div>
     </div>
   );
-
-function btnStyle(color, disabled) {
-  return {
-    background: disabled ? "rgba(255,255,255,0.03)" : `${color}15`,
-    border: `1px solid ${disabled ? "#ffffff11" : color + "44"}`,
-    color: disabled ? "#333" : color,
-    borderRadius: 10,
-    padding: "10px 16px",
-    fontSize: 13,
-    fontFamily: "'Space Mono', monospace",
-    cursor: disabled ? "not-allowed" : "pointer",
-    transition: "all 0.2s ease",
-    textAlign: "left",
-  };
 }
