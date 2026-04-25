@@ -13,7 +13,8 @@
     "framer-motion": "^12.38.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "react-parallax-tilt": "^1.7.324"
+    "react-parallax-tilt": "^1.7.324",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
