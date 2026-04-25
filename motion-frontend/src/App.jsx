@@ -45,10 +45,14 @@ export default function App() {
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const overlayRef = useRef(null);
   const prevFrameRef = useRef(null);
   const alertSoundRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+  
+  // Single Source of Truth for Motion State (prevents unmount reset loops)
+  const motionStateRef = useRef({ frames: 0, frameCount: 0, isDetecting: false });
 
   useEffect(() => {
     alertSoundRef.current = new Audio("/alert.mp3");
@@ -56,8 +60,7 @@ export default function App() {
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (mode === "browser") return; // No backend dependency in browser mode
-      
+      if (mode === "browser") return;
       try {
         const res = await fetch(`${API}/status`);
         if (!res.ok) return;
@@ -65,11 +68,7 @@ export default function App() {
 
         setStatus(prev => {
           if (data.status !== prev.status && data.status === "Motion Detected") {
-            setLog(l => [{
-              time: new Date().toLocaleTimeString(),
-              msg: "⚡ Motion event detected"
-            }, ...l.slice(0, 19)]);
-
+            setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⚡ Motion event detected" }, ...l.slice(0, 19)]);
             if (soundOn && alertSoundRef.current) {
               alertSoundRef.current.currentTime = 0;
               alertSoundRef.current.play().catch(() => {});
@@ -77,9 +76,7 @@ export default function App() {
           }
           return data;
         });
-      } catch (_) {
-        // Silently fail if backend is unreachable
-      }
+      } catch (_) {}
     }, 500);
     return () => clearInterval(interval);
   }, [mode, soundOn]);
@@ -94,7 +91,7 @@ export default function App() {
   const handleStart = async () => {
     try {
       await fetch(`${API}/start`, { method: "POST" });
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "▶ Camera started" }, ...l]);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "▶ Camera started" }, ...l.slice(0, 19)]);
     } catch (err) {
       console.error("Backend start error:", err);
     }
@@ -103,18 +100,27 @@ export default function App() {
   const handleStop = async () => {
     try {
       await fetch(`${API}/stop`, { method: "POST" });
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Camera stopped" }, ...l]);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Camera stopped" }, ...l.slice(0, 19)]);
     } catch (err) {
       console.error("Backend stop error:", err);
     }
   };
 
+  // 4. Fully Integrated Reset
   const handleReset = async () => {
     try {
       await fetch(`${API}/reset`, { method: "POST" });
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🔄 Background reference reset" }, ...l]);
-    } catch (err) {
-      console.error("Backend reset error:", err);
+    } catch (err) {}
+    
+    // Master Wipe
+    setStatus(s => ({ ...s, status: "Normal", motion_count: 0 }));
+    setLog([{ time: new Date().toLocaleTimeString(), msg: "🔄 System completely reset" }]);
+    motionStateRef.current = { frames: 0, frameCount: 0, isDetecting: false };
+    prevFrameRef.current = null;
+    
+    if (overlayRef.current) {
+      const ctx = overlayRef.current.getContext("2d");
+      ctx?.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
     }
   };
 
@@ -134,7 +140,7 @@ export default function App() {
       };
       mediaRecorderRef.current.start();
       setRecording(true);
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🎥 Browser recording started" }, ...l]);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🎥 Browser recording started" }, ...l.slice(0, 19)]);
       return;
     }
 
@@ -145,7 +151,7 @@ export default function App() {
         setRecording(true);
         setLastFile(data.file);
       }
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🎥 Recording started" }, ...l]);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🎥 Recording started" }, ...l.slice(0, 19)]);
     } catch (err) {
       console.error("Recording error:", err);
     }
@@ -157,14 +163,14 @@ export default function App() {
         mediaRecorderRef.current.stop();
       }
       setRecording(false);
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Browser recording stopped" }, ...l]);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Browser recording stopped" }, ...l.slice(0, 19)]);
       return;
     }
 
     try {
       await fetch(`${API}/stop_recording`, { method: "POST" });
       setRecording(false);
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Recording stopped" }, ...l]);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⏹ Recording stopped" }, ...l.slice(0, 19)]);
     } catch (err) {
       console.error("Recording stop error:", err);
     }
@@ -179,10 +185,10 @@ export default function App() {
       await videoRef.current.play();
       
       setCamOn(true);
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🌐 Browser camera started" }, ...l]);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🌐 Browser camera started" }, ...l.slice(0, 19)]);
     } catch (err) {
       console.error("Camera error:", err);
-      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⚠️ Camera access denied" }, ...l]);
+      setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "⚠️ Camera access denied" }, ...l.slice(0, 19)]);
     }
   };
 
@@ -194,9 +200,17 @@ export default function App() {
       videoRef.current.srcObject = null;
     }
     setCamOn(false);
+    
     setStatus(s => ({ ...s, status: "Normal" }));
+    motionStateRef.current = { frames: 0, frameCount: 0, isDetecting: false };
     prevFrameRef.current = null;
-    setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🌐 Browser camera stopped" }, ...l]);
+    
+    if (overlayRef.current) {
+      const ctx = overlayRef.current.getContext("2d");
+      ctx?.clearRect(0, 0, overlayRef.current.width, overlayRef.current.height);
+    }
+    
+    setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🌐 Browser camera stopped" }, ...l.slice(0, 19)]);
   };
 
   useEffect(() => {
@@ -208,88 +222,103 @@ export default function App() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
-    let lastMotionTime = 0;
-    let motionFrames = 0;
-    let frameCount = 0;
-
     const detect = () => {
       const video = videoRef.current;
+      const overlay = overlayRef.current;
 
       if (!video || video.readyState !== video.HAVE_ENOUGH_DATA) {
         animationFrameId = requestAnimationFrame(detect);
         return;
       }
 
-      // Update FPS UI for browser mode manually
       setStatus(s => s.fps !== 30 ? { ...s, fps: 30 } : s);
 
       if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
+        if (overlay) {
+          overlay.width = video.videoWidth;
+          overlay.height = video.videoHeight;
+        }
       }
 
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      
+      const overlayCtx = overlay?.getContext("2d");
+      if (overlayCtx) {
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+      }
 
       if (prevFrameRef.current && prevFrameRef.current.width === canvas.width && prevFrameRef.current.height === canvas.height) {
         let diff = 0;
+        let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
 
-        // Skip pixels to increase performance (check every 16th pixel = 64 bytes)
         for (let i = 0; i < frame.data.length; i += 64) {
           const r = Math.abs(frame.data[i] - prevFrameRef.current.data[i]);
           const g = Math.abs(frame.data[i + 1] - prevFrameRef.current.data[i + 1]);
           const b = Math.abs(frame.data[i + 2] - prevFrameRef.current.data[i + 2]);
-          // Require significant color change to ignore noise
-          if (r + g + b > 60) diff++;
-        }
-
-        // If at least 100 sample points detected movement
-        if (diff > 100) {
-          motionFrames++;
-        } else {
-          // Smooth decay prevents flickering if motion stops for a split second
-          if (motionFrames > 0) motionFrames--;
-        }
-
-        // Must have 4-5 consecutive frames of motion
-        if (motionFrames >= 5) {
-          motionFrames = 5; // cap to prevent integer overflow over time
-          const now = Date.now();
           
-          if (now - lastMotionTime > 1500) {
-            lastMotionTime = now;
-            // Increment motion count strictly once every 1.5 seconds
-            setStatus(s => ({ ...s, status: "Motion Detected", motion_count: s.motion_count + 1 }));
-            
-            // Log the event exactly once
-            setLog(l => [{
-              time: new Date().toLocaleTimeString(),
-              msg: "🌐 Browser motion detected"
-            }, ...l.slice(0, 19)]);
-          } else {
-            // Sustain "Motion Detected" status without counting up
-            setStatus(s => s.status === "Motion Detected" ? s : { ...s, status: "Motion Detected" });
+          if (r + g + b > 60) {
+            diff++;
+            const p = i / 4;
+            const x = p % canvas.width;
+            const y = Math.floor(p / canvas.width);
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
           }
+        }
 
-          if (soundOn && alertSoundRef.current) {
-            if (alertSoundRef.current.paused) {
+        let { frames, frameCount, isDetecting } = motionStateRef.current;
+
+        if (diff > 100) {
+          frames++;
+        } else {
+          if (frames > 0) frames--;
+        }
+
+        if (frames >= 5) {
+          frames = 5;
+          
+          // 3. Trigger exactly once per physical motion event
+          if (!isDetecting) {
+            isDetecting = true;
+            setStatus(s => ({ ...s, status: "Motion Detected", motion_count: s.motion_count + 1 }));
+            setLog(l => [{ time: new Date().toLocaleTimeString(), msg: "🌐 Browser motion detected" }, ...l.slice(0, 19)]);
+            
+            if (soundOn && alertSoundRef.current) {
               alertSoundRef.current.currentTime = 0;
               alertSoundRef.current.play().catch(() => {});
             }
           }
-        } else if (motionFrames === 0) {
-          // Cleanly fall back to "Watching"
-          setStatus(s => s.status === "Normal" ? s : { ...s, status: "Normal" });
+
+          // 6. Draw clean green bounding boxes, filtering out tiny noise squares
+          const boxWidth = maxX - minX;
+          const boxHeight = maxY - minY;
+          if (overlayCtx && boxWidth > 40 && boxHeight > 40) {
+             overlayCtx.strokeStyle = "#00ff00";
+             overlayCtx.lineWidth = 3;
+             overlayCtx.strokeRect(minX, minY, boxWidth, boxHeight);
+          }
+
+        } else if (frames === 0) {
+          // Graceful fallback and release lock
+          if (isDetecting) {
+            isDetecting = false;
+            setStatus(s => ({ ...s, status: "Normal" }));
+          }
         }
+
+        frameCount++;
+        if (frameCount % 3 === 0 || !prevFrameRef.current) {
+          prevFrameRef.current = frame;
+        }
+        
+        motionStateRef.current = { frames, frameCount, isDetecting };
       }
 
-      // Instead of updating the reference frame every 16ms (which makes the difference tiny),
-      // we update it every 3 frames (~50ms) so motion has time to actually displace pixels.
-      frameCount++;
-      if (frameCount % 3 === 0 || !prevFrameRef.current) {
-        prevFrameRef.current = frame;
-      }
-      
       animationFrameId = requestAnimationFrame(detect);
     };
 
@@ -397,13 +426,19 @@ export default function App() {
             )}
             
             {mode === "browser" && (
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                style={{ width: "100%", maxHeight: 420, objectFit: "cover", display: camOn ? "block" : "none" }}
-              />
+              <>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  style={{ width: "100%", maxHeight: 420, objectFit: "cover", display: camOn ? "block" : "none" }}
+                />
+                <canvas 
+                  ref={overlayRef} 
+                  style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none", display: camOn ? "block" : "none" }} 
+                />
+              </>
             )}
 
             {!isRunning && (
@@ -488,10 +523,9 @@ export default function App() {
                 </button> 
                 <button 
                   onClick={handleReset} 
-                  disabled={!isRunning || mode === "browser"} 
-                  style={btnStyle("#60aaff", !isRunning || mode === "browser")}
+                  style={btnStyle("#60aaff", false)}
                 >
-                  🔄 Reset Background
+                  🔄 Reset System
                 </button>
                 <button 
                   onClick={handleStartRecording}
